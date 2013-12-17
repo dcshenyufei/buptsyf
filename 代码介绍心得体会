@@ -1,0 +1,208 @@
+关于计算GPA的程序
+
+流程：
+1、打开教务系统网站，查看登陆时发送了哪些信息，分析POST和GET信息，并在模拟登陆时使用；
+2、进入网站后，查看如何与网站交互，同步骤一，分析这些信息，在模拟查询时使用；
+3、使用爬虫模拟登陆和查询，用python模拟发送一个POST的数据并取到返回的cookie值，得到成绩页面的html代码；
+4、使用正则表达式提取得到的html代码中的所有成绩信息；
+5、通过提取到的成绩信息计算平均学分绩。
+
+
+
+
+cookielib模块
+既然说到这个模块，就不得不提一提cookie的概念
+
+1、Cookie是什么？
+
+　　首先，它是一个数据包，每次访问网站的时候浏览器都会将该网站的Cookie发回给网站服务器，同时网站也可以随意更改你机器上对应的Cookie。Cookie不是只有一个，而是一个网站一个。它不是你在网络中的唯一标识，只是你在某个网站的唯一标识。
+
+　　2、Cookie中都有什么东西？
+
+　　这个取决于网站自身，有人说网站会存储一些重要的用户信息(什么用户名、密码、浏览记录、IP地址什么的)到Cookie里。事实上：
+
+　　普通网站都不会存重要的信息，它们仅仅存一个你的登陆状态，也就是你拿用户名密码换取的令牌，还有就是网站针对你的判定(比如你在这个网站上的唯一标识是什么，你访问的是我们的哪台服务器，你使用的是我们的哪个版本的产品)，这些信息你都不需要关心，它和你的隐私一点关系都没有。
+
+　　文艺一点的网站会将这些信息进行加密，目的是防止别人伪造这些信息欺骗网站。
+
+　　央视描述的网站(在Cookie里存用户名、密码的，也许是央视网)的做法在互联网上是极其极其少见的，可能只有外行或者刚学网络开发的学生会这么做，这种网站是极其不安全的，你的信息很容易就泄漏了，所以还是少去访问。
+
+　　3、Cookie会被人窃取吗？
+
+　　Cookie只能被放置它的网站读取。这一点是浏览器保证的，这也是浏览器的一个重要的安全机制。如果你觉得你的浏览器不能保证这一点，那就换个靠谱的，比如IE9啊，Chrome啊，Firefox啊都是相当不错的。这么说Cookie是安全的了？也不一定，Cookie在传输过程中和网站方都有可能被窃取。我举个不太恰当的例子：
+
+　　我们可以把用户访问网站的过程比做你给网站写一封信，信的内容可以比做你提交给网站的一些信息(比如你的性别啊，年龄啊)，Cookie可以比做信封中的寄信人，标识你是谁。那么在整个寄信过程中，邮电局是完全有机会窃取你的信封的，而网站也可以将你的信封卖给别人。但是！！！这两方其实已经拥有了你这封信的内容了，你觉得他们有必要偷你的信封吗？
+
+　　事实上，Cookie的盗用一般在你使用了不安全的网络(比如公共场所的WiFi)，或者网站出现安全漏洞的情况下才会放生，前者发生的概率就比较低，而后者对网站造成的影响远比Cookie被盗这点小事大很多，在互联网公司是严重的故障，一经发现很快就会堵上的。
+
+      cookielib模块的主要作用是提供可存储cookie的对象，以便于与urllib2模块配合使用来访问Internet资源。例如可以利用本模块的CookieJar类的对象来捕获cookie并在后续连接请求时重新发送。coiokielib模块用到的对象主要有下面几个：CookieJar、FileCookieJar、MozillaCookieJar、LWPCookieJar。其中他们的关系如下：
+
+                        CookieJar                       
+
+                            /    
+
+            FileCookieJar      
+
+             /                   \    
+
+ MozillaCookieJar      LWPCookieJar            
+
+ 
+
+1、CookieJar ()
+
+      管理HTTP cookie值、存储HTTP请求生成的cookie、向传出的HTTP请求添加cookie的对象。整个cookie都存储在内存中，对CookieJar实例进行垃圾回收后cookie也将丢失。
+
+      The CookieJar class stores HTTP cookies. It extracts cookies from HTTP requests, and returns them in HTTP responses.CookieJar instances automatically expire contained cookies when necessary. Subclasses are also responsible for storing and retrieving cookies from a file or database.
+
+2、FileCookieJar (filename,delayload=None,policy=None)
+
+       创建FileCookieJar实例，检索cookie信息并将cookie存储到文件中。filename是存储cookie的文件名。delayload为True时支持延迟访问访问文件，即只有在需要时才读取文件或在文件中存储数据。
+
+      A CookieJar which can load cookies from, and perhaps save cookies to, a file on disk. Cookies are NOT loaded from the named file until either the load() or revert() method is called.
+
+3、MozillaCookieJar (filename,delayload=None,policy=None)
+
+      创建与Mozilla浏览器cookies.txt兼容的FileCookieJar实例。
+
+       A FileCookieJar that can load from and save cookies to disk in the Mozilla  cookies.txt  file format (which is also used by the Lynx and Netscape browsers).Also note that cookies saved while Mozilla is running will get clobbered by Mozilla.
+
+4、LWPCookieJar (filename,delayload=None,policy=None)
+
+      创建与libwww-perl的Set-Cookie3文件格式兼容的FileCookieJar实例。
+
+      A FileCookieJar that can load from and save cookies to disk in format compatible with the libwww-perl library’s Set-Cookie3file format. This is convenient if you want to store cookies in a human-readable file.
+
+  
+
+     除了上面几个函数之外，下面几个函数也很重要：
+
+FileCookieJar. save ( filename=None ,   ignore_discard=False ,   ignore_expires=False )
+Save cookies to a file.This base class raises NotImplementedError. Subclasses may leave this method unimplemented.filename is the name of file in which to save cookies. If filename is not specified, self.filename is used (whose default is the value passed to the constructor, if any); if self.filename is None, ValueError is raised. ignore_discard: save even cookies set to be discarded. ignore_expires: save even cookies that have expiredThe file is overwritten if it already exists, thus wiping all the cookies it contains. Saved cookies can be restored later using the load() or revert() methods.
+
+FileCookieJar. load ( filename=None ,   ignore_discard=False ,   ignore_expires=False )
+Load cookies from a file.Old cookies are kept unless overwritten by newly loaded ones.Arguments are as for save().The named file must be in the format understood by the class, or LoadError will be raised. Also, IOError may be raised, for example if the file does not exist.
+
+FileCookieJar. revert ( filename=None ,   ignore_discard=False ,   ignore_expires=False )
+Clear all cookies and reload cookies from a saved file. revert() can raise the same exceptions as load(). If there is a failure, the object’s state will not be altered.
+
+ 
+
+cookielib模块一般与urllib2模块配合使用，主要用在urllib2.build_oper()函数中作为urllib2.HTTPCookieProcessor()的参数。使用方法如下面登录人人网的代码：
+
+view sourceprint?
+01
+#! /usr/bin/env python
+02
+#coding=utf-8
+03
+import urllib2
+04
+import urllib
+05
+import cookielib
+06
+data={"email":"用户名","password":"密码"}  #登陆用户名和密码
+07
+post_data=urllib.urlencode(data)
+08
+cj=cookielib.CookieJar()
+09
+opener=urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+10
+headers ={"User-agent":"Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1"}
+11
+req=urllib2.Request("http://www.renren.com/PLogin.do",post_data,headers)
+12
+content=opener.open(req)
+13
+print content2.read().decode("utf-8").encode("gbk")
+
+
+
+正则表达式：
+
+正则表达式的大致匹配过程是：
+1.依次拿出表达式和文本中的字符比较，
+2.如果每一个字符都能匹配，则匹配成功；一旦有匹配不成功的字符则匹配失败。
+3.如果表达式中有量词或边界，这个过程会稍微有一些不同。
+
+模拟人人登陆
+
+登录界面的主页
+
+
+这里是将用户名和密码等发送到的页面上，这里需要抓包（我的方法是打开chrome浏览器，打开到登录页面，打开“审查元素”，在里面的网络里面查到的）
+
+生成cookie
+
+
+打开登录界面，获取cookie，并将该cookie保存下来
+
+发送的数据，方法同上
+postdata={
+
+ 
+将数据进行编码
+
+构造一个请求消息
+
+发送一个请求消息
+
+获取到人人登录的主页，这里每个人也许会不一样，每个人需要根据自己的text的里面数据来解析
+
+模拟新浪微博登陆并关注好友
+
+登录
+登录第一步，抓取网页信息，并在相应位置填入个人用户信息
+pubkey为rsa加密中的公钥中的第一个参数，rsakv是作为下一步登录的headers中的一个值。
+加密，username还是以前一样的处理，
+    username_ = urllib.quote(username)
+    username = base64.encodestring(username)[:-1]
+密码加密 也是最重要的一部分，
+1，先创建一个rsa公钥，公钥的两个参数新浪微博都给了是固定值，不过给的都是16进制的字符串，第一个是登录第一步中的pubkey，第二个是js加密文件中的‘10001’。
+这两个值需要先从16进制转换成10进制，不过也可以写死在代码里。我就把‘10001’直接写死为65537
+rsaPublickey = int(pubkey, 16)
+key = rsa.PublicKey(rsaPublickey, 65537) ＃创建公钥
+message = str(servertime) + '\t' + str(nonce) + '\n' + str(password)＃拼接明文 js加密文件中得到
+passwd = rsa.encrypt(message, key)＃加密
+passwd = binascii.b2a_hex(passwd) ＃将加密信息转换为16进制。
+2，请求通行证url：login_url = "http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.2)"
+需要发送的报头信息
+formdata = {"entry" : 'weibo', "gateway" : '1', "from" : '', "savestate" : '7', "useticket" : '1', "ssosimplelogin" : '1', "su" : usr, "service" : 'miniblog', "servertime" : servertime, "nonce" : nonce, "pwencode" : 'rsa2', "sp" : passwd, "encoding" : 'UTF-8', "rsakv" : '1330428213', "url" : 'http://weibo.com/ajaxlogin.php?framelogin=1&callback=parent.sinaSSOController.feedBackUrlCallBack', "returntype" : 'META'}
+请求的内容中添加了rsakv，将pwencode的值修改为rsa2，其他跟以前一致
+
+模拟登陆用到的
+rsa加密算法
+RSA公钥加密算法是1977年由罗纳德·李维斯特（Ron Rivest）、阿迪·萨莫尔（Adi Shamir）和伦纳德·阿德曼（Leonard Adleman）一起提出的。当时他们三人都在麻省理工学院工作。RSA就是他们三人姓氏开头字母拼在一起组成的。
+RSA是目前最有影响力的公钥加密算法，它能够抵抗到目前为止已知的绝大多数密码攻击，已被ISO推荐为公钥数据加密标准。
+今天只有短的RSA钥匙才可能被强力方式解破。到2008年为止，世界上还没有任何可靠的攻击RSA算法的方式。只要其钥匙的长度足够长，用RSA加密的信息实际上是不能被解破的。但在分布式计算和量子计算机理论日趋成熟的今天，RSA加密安全性受到了挑战。
+RSA算法基于一个十分简单的数论事实：将两个大素数相乘十分容易，但那时想要对其乘积进行因式分解却极其困难，因此可以将乘积公开作为加密密钥。
+RSA公开密钥密码体制。所谓的公开密钥密码体制就是使用不同的加密密钥与解密密钥，是一种“由已知加密密钥推导出解密密钥在计算上是不可行的”密码体制。
+
+在公开密钥密码体制中，加密密钥（即公开密钥）PK是公开信息，而解密密钥（即秘密密钥）SK是需要保密的。加密算法E和解密算法D也都是公开的。虽然秘密密钥SK是由公开密钥PK决定的，但却不能根据PK计算出SK。
+正是基于这种理论，1978年出现了著名的RSA算法，它通常是先生成一对RSA 密钥，其中之一是保密密钥，由用户保存；另一个为公开密钥，可对外公开，甚至可在网络服务器中注册。为提高保密强度，RSA密钥至少为500位长，一般推荐使用1024位。这就使加密的计算量很大。为减少计算量，在传送信息时，常采用传统加密方法与公开密钥加密方法相结合的方式，即信息采用改进的DES或IDEA对话密钥加密，然后使用RSA密钥加密对话密钥和信息摘要。对方收到信息后，用不同的密钥解密并可核对信息摘要。
+RSA算法是第一个能同时用于加密和数字签名的算法，也易于理解和操作。RSA是被研究得最广泛的公钥算法，从提出到现今的三十多年里，经历了各种攻击的考验，逐渐为人们接受，普遍认为是目前最优秀的公钥方案之一。
+
+
+火车票抢票
+研究方法，蟒蛇+虚拟机+ HTTPS监视工具
+这只是一个半成品，只是实现了，一个完整的订票过程，对于，如果刷票，自己研究  
+简单过程  
+第一，getRandAndCookie（）获得厨师和一个随机数用于登录   
+第二，getEnterRandCode（）得到登录时的识别码            
+第三，setuseandpassword（randcode，使用的密码）  
+第四，GetTrainList（）得到所有车站列表，'@ BJB |北京北| VAP | beijingbei | BJB | 0'  
+第五，GetTrainNumList（日期，fromstationid，tostationid，STARTTIME）  
+  
+通过ChangeToTrainNumId（'K106'）得到车次编号  
+第六，QueryTrain（fromstationid，tostationid，日期，stationNum，STARTTIME）就是点击查询按键，得到是否有能预订，格式如下  
+<跨度ID ='id_5700000Z6809'  
+类='base_txtdiv'  
+的onmouseover = javascript的：onStopHover（'5700000Z6809＃＃NCG BXP'）  
+鑻='onStopOut（）'> Z68 </ SPAN>，<img src='/otsweb/images/tips/first.gif'>南昌<BR> 20:12，<IMG SRC =“/ otsweb /影像/提示/ last.gif'>北京西<BR> 07:38,11:26， - ， - ， - ， - ，10，<font color='#008800'>有</ FONT>，<字体颜色=“＃008800”>有</ FONT>， - ，<font color='#008800'>有</ FONT>，<font color='#008800'>有</ FONT>， - ， <名称='btn130_2'类='btn130_2“风格=”文本装饰：无;'  
+订</ A>  
+通过choiceSubmitNum（stationNum，trainsubmitinfo）提取出getSelected（）消息  
+第七，submitRequest（choiceSubmitNum（stationNum，trainsubmitinfo），日期，STARTTIME）就是点击预订按钮  
+第八，getrandCheckCode（）得到提交订单的识别码    
+  
