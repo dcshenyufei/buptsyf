@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+import httplib,urllib,urllib2
+import sys,time,os,math,random
+import cookielib
+import json
+
+NAME=""
+PASSWORD=""
+
+cookie=cookielib.CookieJar()
+cj=urllib2.HTTPCookieProcessor(cookie)
+opener = urllib2.build_opener(cj)
+opener.handle_open["http"][0].set_http_debuglevel(1)
+
+entryurl = "http://www.12306.cn/mormhweb/kyfw/"
+loginurl = "https://dynamic.12306.cn/otsweb/loginAction.do?method=init"
+lrurl = "https://dynamic.12306.cn/otsweb/loginAction.do?method=loginAysnSuggest"
+rcurl = "https://dynamic.12306.cn/otsweb/passCodeAction.do?rand=sjrand&"+str(random.random())
+lgurl = "https://dynamic.12306.cn/otsweb/loginAction.do?method=login"
+searchurl1 = "https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=queryLeftTicket&orderRequest.train_date=2013-02-18&orderRequest.from_station_telecode=LFV&orderRequest.to_station_telecode=TJP&orderRequest.train_no=270000K8660B&trainPassType=QB&trainClass=QB%23D%23Z%23T%23K%23QT%23&includeStudent=00&seatTypeAndNum=&orderRequest.start_time_str=00%3A00--24%3A00"
+searchurl2 = "https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=queryLeftTicket&orderRequest.train_date=2013-02-18&orderRequest.from_station_telecode=LFV&orderRequest.to_station_telecode=TJP&orderRequest.train_no=270000K8660B&trainPassType=QB&trainClass=QB%23D%23Z%23T%23K%23QT%23&includeStudent=00&seatTypeAndNum=&orderRequest.start_time_str=00%3A00--24%3A00"
+searchurl3 = "https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=queryLeftTicket&orderRequest.train_date=2013-02-18&orderRequest.from_station_telecode=LFV&orderRequest.to_station_telecode=TJP&orderRequest.train_no=270000K8660B&trainPassType=QB&trainClass=QB%23D%23Z%23T%23K%23QT%23&includeStudent=00&seatTypeAndNum=&orderRequest.start_time_str=00%3A00--24%3A00"
+srurl = [searchurl1, searchurl2]
+
+#####
+req = urllib2.Request(entryurl)
+rsp = opener.open(req)
+
+#print rsp.read()
+
+##para_data = urllib.urlencode(para_dct)
+reqlogin = urllib2.Request(loginurl)
+reqlogin.add_header('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
+reqlogin.add_header('Referer', 'https://dynamic.12306.cn/otsweb/')
+reqlogin.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:18.0) Gecko/20100101 Firefox/18.0')
+rsp = opener.open(reqlogin)
+
+#print rsp.read()
+
+#####
+reqrc = urllib2.Request(rcurl)
+reqrc.add_header('Accept','image/png,image/*;q=0.8,*/*;q=0.5')
+reqrc.add_header('Referer', 'https://dynamic.12306.cn/otsweb/loginAction.do?method=login')
+reqrc.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:18.0) Gecko/20100101 Firefox/18.0')
+rsp = opener.open(reqrc)
+
+img=rsp.read()
+fileObj=open('a2.png','wb')
+fileObj.write(img)
+fileObj.close()
+
+#####
+reqlr = urllib2.Request(lrurl)
+reqlr.add_header('Accept','application/json, text/javascript, */*')
+reqlr.add_header('Referer', 'https://dynamic.12306.cn/otsweb/loginAction.do?method=init')
+reqlr.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:18.0) Gecko/20100101 Firefox/18.0')
+reqlr.add_header('Cache-Control','no-cache')
+reqlr.add_header('Pragma','no-cache')
+
+para = urllib.urlencode({})
+rsp = opener.open(reqlr, para)
+lrjs = json.loads(rsp.read())
+print lrjs["loginRand"]
+print lrjs["randError"]
+
+#####
+lgRand=lrjs["loginRand"]
+rdCode=raw_input('input randCode:')
+
+#####
+reqlg = urllib2.Request(lgurl)
+reqlg.add_header('Accept','text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
+reqlg.add_header('Referer', 'https://dynamic.12306.cn/otsweb/loginAction.do?method=init')
+reqlg.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:18.0) Gecko/20100101 Firefox/18.0')
+
+para = urllib.urlencode({"loginRand":lgRand,
+                         "loginUser.user_name":NAME,
+                         "nameErrorFocus":"",
+                         "passwordErrorFocus":"",
+                         "randCode":rdCode,
+                         "randErrorFocus":"",
+                         "refundFlag":"Y",
+                         "refundLogin":"N",
+                         "user.password":PASSWORD})
+rsp = opener.open(reqlg, para)
+print rsp.read()
+
+#####
+
+for url in srurl:
+    reqsearch = urllib2.Request(url)
+    reqsearch.add_header('Accept','text/plain, */*')
+    reqsearch.add_header('Referer', 'https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=init')
+    reqsearch.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:18.0) Gecko/20100101 Firefox/18.0')
+    reqsearch.add_header('Content-Type','application/x-www-form-urlencoded')
+    rsp = opener.open(reqsearch)
+    print "--------------------"
+    print rsp.read()
+    time.sleep(10)
