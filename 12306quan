@@ -1,0 +1,1500 @@
+# -*- coding: utf-8 -*-
+
+import pycurl
+import StringIO
+import ConfigParser
+#这只是一个半成品，只是实现了，一个完整的订票过程，对于，如果刷票，自己研究
+#简单过程
+#   第一、getRandAndCookie() 获得cook 和一个随机数用于登录 
+#   第二、getEnterRandCode() 得到登录时的识别码          
+#   第三、setuseandpassword(randcode,use,password) 发送随机数、识别码和用户及密码。由于随机数只在内部使用，所以定义成了全局变量，
+#   第四、GetTrainList() 得到所有车站列表，'@bjb|北京北|VAP|beijingbei|bjb|0' 其中有中文、拼音、拼音缩写、所一个ID(唯一)，其主要是可以，通过上面的列表，找到它的唯一ID,TranCityToId('南昌')
+#   第五、GetTrainNumList(date,fromstationid,tostationid,starttime) 得到哪到哪的所在车次，消息格式如下，其中所以，一下车次的的ID:"id":"650000K1060I"
+#        {"end_station_name":"北京西","end_time":"16:18","id":"650000K1060I","start_station_name":"深圳","start_time":"10:54","value":"K106"}
+#        通过ChangeToTrainNumId('K106')得到车次ID
+#   第六、QueryTrain(fromstationid,tostationid,date,stationNum,starttime) 就是点击查询按键，得到是否有能预订，格式如下
+#        <span id='id_5700000Z6809'
+#              class='base_txtdiv'
+#              onmouseover=javascript:onStopHover('5700000Z6809#NCG#BXP')
+#              onmouseout='onStopOut()'>Z68</span>,<img src='/otsweb/images/tips/first.gif'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;南昌&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>&nbsp;&nbsp;&nbsp;&nbsp;20:12,<img src='/otsweb/images/tips/last.gif'>&nbsp;&nbsp;&nbsp;&nbsp;北京西&nbsp;&nbsp;&nbsp;&nbsp;<br>&nbsp;&nbsp;&nbsp;&nbsp;07:38,11:26,--,--,--,--,10,<font color='#008800'>有</font>,<font color='#008800'>有</font>,--,<font color='#008800'>有</font>,<font color='#008800'>有</font>,--,<a name='btn130_2' class='btn130_2' style='text-decoration:none;'
+#              onclick=javascript:getSelected('Z68#11:26#20:12#5700000Z6809#NCG#BXP#07:38#南昌#北京西#01#04#1*****31804*****00481*****03306*****00103*****0162#4AFCA0360B0B029AB6E00E3DF2231EE95B4CA798E4D91F296D9BF4CF#G1')>预&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;订</a>
+#       通过choiceSubmitNum(stationNum,trainsubmitinfo)提取出getSelected()消息
+#   第七、submitRequest(choiceSubmitNum(stationNum,trainsubmitinfo),date,starttime) 就是点击预订按钮
+#   第八、getrandCheckCode()得到提交订单的识别码  
+#   第十、CheckInMyTicket(info,randcode,peoples)点击提交，如果成功的话，就会返回{"errMsg":"Y"}
+
+# 出于，网络是UTF8格式，所以，必须# -*- coding: utf-8 -*-，（当然，自己转换也是可以的）
+# 出于这一个控制台信息，所以，识别码的图片在脚本同一目录
+#得到头信息
+# -*- coding: utf-8 -*-
+
+
+import pycurl
+import StringIO
+import ConfigParser
+import Image
+import os
+import re
+import time
+import json
+import sys
+import math
+import binascii
+
+
+#这只是一个半成品，只是实现了，一个完整的订票过程，对于，如果刷票，自己研究
+#简单过程
+# &nbsp; 第一、getRandAndCookie() 获得cook 和一个随机数用于登录&nbsp;
+# &nbsp; 第二、getEnterRandCode() 得到登录时的识别码 &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+# &nbsp; 第三、setuseandpassword(randcode,use,password) 发送随机数、识别码和用户及密码。由于随机数只在内部使用，所以定义成了全局变量，
+# &nbsp; 第四、GetTrainList() 得到所有车站列表，'@bjb|北京北|VAP|beijingbei|bjb|0' 其中有中文、拼音、拼音缩写、所一个ID(唯一)，其主要是可以，通过上面的列表，找到它的唯一ID,TranCityToId('南昌')
+# &nbsp; 第五、GetTrainNumList(date,fromstationid,tostationid,starttime) 得到哪到哪的所在车次，消息格式如下，其中所以，一下车次的的ID:"id":"650000K1060I"
+# &nbsp; &nbsp; &nbsp; &nbsp;{"end_station_name":"北京西","end_time":"16:18","id":"650000K1060I","start_station_name":"深圳","start_time":"10:54","value":"K106"}
+# &nbsp; &nbsp; &nbsp; &nbsp;通过ChangeToTrainNumId('K106')得到车次ID
+# &nbsp; 第六、QueryTrain(fromstationid,tostationid,date,stationNum,starttime) 就是点击查询按键，得到是否有能预订，格式如下
+# &nbsp; &nbsp; &nbsp; &nbsp;<span id='id_5700000Z6809'
+# &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;class='base_txtdiv'
+# &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;onmouseover=javascript:onStopHover('5700000Z6809#NCG#BXP')
+# &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;onmouseout='onStopOut()'>Z68</span>,<img src='/otsweb/images/tips/first.gif'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;南昌&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>&nbsp;&nbsp;&nbsp;&nbsp;20:12,<img src='/otsweb/images/tips/last.gif'>&nbsp;&nbsp;&nbsp;&nbsp;北京西&nbsp;&nbsp;&nbsp;&nbsp;<br>&nbsp;&nbsp;&nbsp;&nbsp;07:38,11:26,--,--,--,--,10,<font color='#008800'>有</font>,<font color='#008800'>有</font>,--,<font color='#008800'>有</font>,<font color='#008800'>有</font>,--,<a name='btn130_2' class='btn130_2' style='text-decoration:none;'
+# &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;onclick=javascript:getSelected('Z68#11:26#20:12#5700000Z6809#NCG#BXP#07:38#南昌#北京西#01#04#1*****31804*****00481*****03306*****00103*****0162#4AFCA0360B0B029AB6E00E3DF2231EE95B4CA798E4D91F296D9BF4CF#G1')>预&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;订</a>
+# &nbsp; &nbsp; &nbsp; 通过choiceSubmitNum(stationNum,trainsubmitinfo)提取出getSelected()消息
+# &nbsp; 第七、submitRequest(choiceSubmitNum(stationNum,trainsubmitinfo),date,starttime) 就是点击预订按钮
+# &nbsp; 第八、getrandCheckCode()得到提交订单的识别码 &nbsp;
+# &nbsp; 第十、CheckInMyTicket(info,randcode,peoples)点击提交，如果成功的话，就会返回{"errMsg":"Y"}
+
+
+# 出于，网络是UTF8格式，所以，必须# -*- coding: utf-8 -*-，（当然，自己转换也是可以的）
+# 出于这一个控制台信息，所以，识别码的图片在脚本同一目录
+#得到头信息
+def headerCookie(buf):
+&nbsp; &nbsp; global Cookie
+&nbsp; &nbsp;# print buf
+&nbsp; &nbsp; findindex &nbsp;= buf.find("Set-Cookie:")
+&nbsp; &nbsp; if findindex >= 0:
+&nbsp; &nbsp; &nbsp; &nbsp; beginindex = buf.find(':')
+&nbsp; &nbsp; &nbsp; &nbsp; endindex = buf.find(';')
+&nbsp; &nbsp; &nbsp; &nbsp; if endindex >0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Cookie+=buf[beginindex+1:endindex+1]
+#用于测试
+def gethead(buf):
+&nbsp; &nbsp; #
+&nbsp; &nbsp; None
+&nbsp; &nbsp; #print buf
+def setcer(curl):
+&nbsp; &nbsp; curl.setopt(pycurl.CAINFO, r"srca.cer") #根证书
+&nbsp; &nbsp; None
+##得到随机数和cookie连接参数
+def getRandAndCookie():
+&nbsp; &nbsp; global loginRand
+&nbsp; &nbsp; global Cookie
+&nbsp; &nbsp; Cookie = ''
+&nbsp; &nbsp; loginRand = ''
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://www.12306.cn/otsweb/loginAction.do?method=loginAysnSuggest")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, headerCookie)
+&nbsp; &nbsp; #curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; back = b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; login = back.find('loginRand')
+&nbsp; &nbsp; &nbsp; &nbsp; if login >=0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; begin =login + back[login:].find(':')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; begin += back[begin:].find('"')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; end = &nbsp;back[begin+1:].find('"')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; loginRand = back[begin+1:end+begin+1]
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return loginRand
+def getEnterRandCode():
+&nbsp; &nbsp; #得到登录验证码图
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; f = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/passCodeNewAction.do?module=login&rand=sjrand")
+&nbsp; &nbsp; #更改了 以前是https://www.12306.cn/otsweb/passCodeAction.do?rand=sjrand")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, f.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, headerCookie)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = ''
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = f.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetKeyhttp():
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; f = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/loginAction.do?method=init")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, f.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.ENCODING, 'gzip, deflate')
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Accept-Language:zh-CN",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:https://dynamic.12306.cn/otsweb/",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Accept:*/*",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Accept-Encoding:gzip, deflate",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Connection:Keep-Alive"])
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = ''
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = f.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; begin = backinfo.find('/otsweb/dynamicJsAction.do?jsversion=')
+&nbsp; &nbsp; end = backinfo[begin+1:].find('"') + begin+1
+&nbsp; &nbsp; return "https://dynamic.12306.cn"+backinfo[begin:end]
+&nbsp; &nbsp; #/otsweb/dynamicJsAction.do?jsversion=4296&method=loginJs
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; return backinfo
+&nbsp; &nbsp;&nbsp;
+def GetNewKey():
+&nbsp; &nbsp; http = GetKeyhttp()
+&nbsp; &nbsp; print http
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; f = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, http)
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, f.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.ENCODING, 'gzip, deflate')
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Accept-Language:zh-CN",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:https://dynamic.12306.cn/otsweb/loginAction.do?method=init",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Accept:*/*",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Accept-Encoding:gzip, deflate",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Connection:Keep-Alive"])
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = ''
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = f.getvalue()
+&nbsp; &nbsp; curl.close()
+
+
+&nbsp; &nbsp; fkey = backinfo.find('function gc()')
+&nbsp; &nbsp; if fkey > 0:
+&nbsp; &nbsp; &nbsp; &nbsp; beginkey = backinfo[fkey:].find("'") + fkey
+&nbsp; &nbsp; &nbsp; &nbsp; end = backinfo[beginkey+1:].find("'") + beginkey+1
+&nbsp; &nbsp; &nbsp; &nbsp; return backinfo[beginkey+1:end].replace('=','%3D')+'='+(Get12306NewKey(backinfo[beginkey+1:end]).replace('=','%3D'))
+def stringToLongArray(string, includeLength):
+&nbsp; &nbsp; length = len(string)
+&nbsp; &nbsp; result = []
+&nbsp; &nbsp; i = 0;
+&nbsp; &nbsp; while (i < length):
+&nbsp; &nbsp; &nbsp; &nbsp; re = 0
+&nbsp; &nbsp; &nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; re = ord(string[i:i+1])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; re = re | (ord(string[i+1:i+2] )<< 8)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; re = re | (ord(string[i+2:i+3] )<< 16)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; re = re | (ord(string[i+3:i+4] )<< 24)
+&nbsp; &nbsp; &nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; pass
+&nbsp; &nbsp; &nbsp; &nbsp; result.append(re)
+&nbsp; &nbsp; &nbsp; &nbsp; i += 4
+&nbsp; &nbsp; if (includeLength):
+&nbsp; &nbsp; &nbsp; &nbsp; result.append(length)
+&nbsp; &nbsp; return result
+def longArrayToString(data,includeLength):
+&nbsp; &nbsp; length = len(data)
+&nbsp; &nbsp; n = (length - 1) << 2
+&nbsp; &nbsp; if (includeLength):
+&nbsp; &nbsp; &nbsp; &nbsp; m = data[length - 1]
+&nbsp; &nbsp; &nbsp; &nbsp; if((m < n - 3) or (m > n)):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; &nbsp; &nbsp; n = m
+&nbsp; &nbsp; bdata = ""
+&nbsp; &nbsp; for i in range(0,length):#(var i = 0;i < length;i ++ ):
+&nbsp; &nbsp; &nbsp; &nbsp; bdata &nbsp;= bdata + chr(data[i] & 0xff) + chr(data[i] >> 8 & 0xff) + chr(data[i] >> 16 & 0xff) + chr(data[i] >> 24 & 0xff)
+&nbsp; &nbsp; if (includeLength):
+&nbsp; &nbsp; &nbsp; &nbsp; return bdata[0:n]
+&nbsp; &nbsp; else:
+&nbsp; &nbsp; &nbsp; &nbsp; return bdata
+def Base32encrypt(string, key):
+&nbsp; &nbsp; if (string == ""):
+&nbsp; &nbsp; &nbsp; &nbsp; return "";
+&nbsp; &nbsp; delta = 0x9E3779B8
+&nbsp; &nbsp; v = stringToLongArray(string, True)
+&nbsp; &nbsp; k = stringToLongArray(key, False)
+&nbsp; &nbsp; k_length = len(k)
+&nbsp; &nbsp; if (k_length < 4):
+&nbsp; &nbsp; &nbsp; &nbsp; k.append(0)
+&nbsp; &nbsp; &nbsp; &nbsp; k.append(0)
+&nbsp; &nbsp; &nbsp; &nbsp; k.append(0)
+&nbsp; &nbsp; &nbsp; &nbsp; k_length = 4
+&nbsp; &nbsp; v_length = len(v)
+&nbsp; &nbsp; n = v_length - 1;
+&nbsp; &nbsp; z = v[n]
+&nbsp; &nbsp; y = v[0];
+&nbsp; &nbsp; q = math.floor(6 + 52 / (n + 1))
+&nbsp; &nbsp; sum = 0
+&nbsp; &nbsp; while (0 < q ):
+&nbsp; &nbsp; &nbsp; &nbsp; q = q -1
+&nbsp; &nbsp; &nbsp; &nbsp; sum = sum + delta & 0xffffffff;
+&nbsp; &nbsp; &nbsp; &nbsp; e = sum >> 2 & 3;
+&nbsp; &nbsp; &nbsp; &nbsp; for p in range(0,n):#(p = 0; p < n; p ++ ):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; y = v[p + 1];
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; mx = (z >> 5 ^ y << 2) + (y >> 3 ^ z << 4) ^ (sum ^ y) + (k[p & 3 ^ e] ^ z);
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; z = v[p] = v[p] + mx & 0xffffffff;
+&nbsp; &nbsp; &nbsp; &nbsp; p = n
+&nbsp; &nbsp; &nbsp; &nbsp; y = v[0];
+&nbsp; &nbsp; &nbsp; &nbsp; mx = (z >> 5 ^ y << 2) + (y >> 3 ^ z << 4) ^ (sum ^ y) + (k[p & 3 ^ e] ^ z);
+&nbsp; &nbsp; &nbsp; &nbsp; z = v[n] = v[n] + mx & 0xffffffff;
+&nbsp; &nbsp; return longArrayToString(v, False);
+def encode32(inputbuf):
+&nbsp; &nbsp; keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+&nbsp; &nbsp; #inputbuf = escape(inputbuf);
+&nbsp; &nbsp; output = "";
+&nbsp; &nbsp; i = 0;
+&nbsp; &nbsp; sing = 0
+&nbsp; &nbsp; while (i < len(inputbuf)):
+&nbsp; &nbsp; &nbsp; &nbsp; chr1 = ord(inputbuf[i:i+1])
+&nbsp; &nbsp; &nbsp; &nbsp; i = i + 1
+&nbsp; &nbsp; &nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; chr2 = ord(inputbuf[i:i+1])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; i = i + 1
+&nbsp; &nbsp; &nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; chr2 = 0
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; sing = sing or 0x1
+&nbsp; &nbsp; &nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; chr3 = ord(inputbuf[i:i+1])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; i = i + 1
+&nbsp; &nbsp; &nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; chr3 = 0
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; sing = sing or 0x2
+&nbsp; &nbsp; &nbsp; &nbsp; enc1 = chr1 >> 2;
+&nbsp; &nbsp; &nbsp; &nbsp; enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
+&nbsp; &nbsp; &nbsp; &nbsp; enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
+&nbsp; &nbsp; &nbsp; &nbsp; enc4 = chr3 & 63;
+&nbsp; &nbsp; &nbsp; &nbsp; if (sing and 0x1):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; enc3 = enc4 = 64
+&nbsp; &nbsp; &nbsp; &nbsp; elif (sing and 0x2):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; enc4 = 64
+&nbsp; &nbsp; &nbsp; &nbsp; output = output + keyStr[enc1:enc1+1] + keyStr[enc2:enc2+1] + keyStr[enc3:enc3+1] + keyStr[enc4:enc4+1]
+
+
+&nbsp; &nbsp; return output
+def Get12306NewKey(string):
+&nbsp; &nbsp; key = '1111'
+&nbsp; &nbsp; string = string
+&nbsp; &nbsp; b = Base32encrypt(key,string)
+&nbsp; &nbsp; b = binascii.b2a_hex(b)
+&nbsp; &nbsp; return &nbsp;encode32(b)#encode32(b)
+#发送用户和密码,即登录
+def setuseandpassword(randcode,usename,password,newkey):#nrandcode验证码 &nbsp;usename 用户名 password 密码
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('loginRand=%s'%(loginRand))
+&nbsp; &nbsp; data.append('refundLogin=N')
+&nbsp; &nbsp; data.append('refundFlag=Y')
+&nbsp; &nbsp; data.append('isClick=&form_tk=null')
+&nbsp; &nbsp; data.append('loginUser.user_name=%s'%(usename))
+&nbsp; &nbsp; data.append('nameErrorFocus=')
+&nbsp; &nbsp; data.append('user.password=%s'%(password))
+&nbsp; &nbsp; data.append('passwordErrorFocus=')
+&nbsp; &nbsp; data.append('randCode=%s'%(randcode))
+&nbsp; &nbsp; data.append('randErrorFocus=')
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; data.append(newkey) #这个不知道为什么，不要还能登入
+&nbsp; &nbsp; data.append('myversion=undefined')
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; print senddata
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()#https://dynamic.12306.cn/otsweb/loginAction.do?method=login
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/loginAction.do?method=login")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.ENCODING, 'gzip, deflate')
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Accept-Language:zh-CN",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Accept-Encoding:gzip, deflate"])
+&nbsp; &nbsp; #curl.setopt(pycurl.CAINFO, r"/home/china/桌面/myPython/srca.cer") #根证书
+&nbsp; &nbsp; #curl.setopt(pycurl.SSLCERT,"/home/china/桌面/myPython/srca.cer") #客户端证书
+&nbsp; &nbsp; #curl.setopt(pycurl.SSLKEY, "/home/china/桌面/myPython/srca.cer") #客户端密钥
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; #curl.setopt(pycurl.HTTPPOST,data)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,str(senddata))
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+#用于分析，登录时返回，用户名的信息
+def transitionGetUseInfo(info):
+&nbsp; &nbsp; if info == None:
+&nbsp; &nbsp; &nbsp; &nbsp; return 'error_ininfo'
+&nbsp; &nbsp; if info.find('请输入正确的验证码！') > 0:
+&nbsp; &nbsp; &nbsp; &nbsp; return 'error_rand_code'
+&nbsp; &nbsp; index = info.find("var hello = '")
+&nbsp; &nbsp; if index > 0:
+&nbsp; &nbsp; &nbsp; &nbsp; end = index+14+info[index+14:].find("'")
+&nbsp; &nbsp; &nbsp; &nbsp; return info[index+13:end]
+&nbsp; &nbsp; return 'error_unknow'
+#得到火车列表，其中含有名字和ID等相关信息。名字有中、拼、缩写等
+def GetTrainList():
+&nbsp; &nbsp; global train&nbsp;
+&nbsp; &nbsp; url = 'https://dynamic.12306.cn/otsweb/js/common/station_name.js?version=5.68'
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; #curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; None
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; train = b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; &nbsp; &nbsp; return train
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return None
+#将火车站名转化为ID，拼音、拼音缩写、中文都可以，调用条会是，GetTrainList返回成功
+def TranCityToId(stationName):
+&nbsp; &nbsp; Id = ""
+&nbsp; &nbsp; index =train.find('|'+stationName+'|')
+&nbsp; &nbsp; if index < 0:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; index = index +1
+&nbsp; &nbsp; begin = index-100
+&nbsp; &nbsp; if index < 100:
+&nbsp; &nbsp; &nbsp; &nbsp; begin = 0
+&nbsp; &nbsp; begin = index - train[index:begin:-1].find('@')
+&nbsp; &nbsp; if begin == &nbsp;-1:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; begin = begin+train[begin:].find('|')
+&nbsp; &nbsp; if begin == &nbsp;-1:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; begin = begin+train[begin+1:].find('|')+1
+&nbsp; &nbsp; if begin == &nbsp;-1:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; end = begin+train[begin+1:].find('|')+1
+&nbsp; &nbsp; if end == &nbsp;-1:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; return train[begin+1:end]
+#查询列车，批定车次、时间、等 例如：北京到南昌 2013－01－02 L110，车站id是用TranCityToId转化而来的（
+def QueryTrain(fromstationid,tostationid,stationtime,stationNum,starttime):#返回的结果，之所以不使用全局变量是因为，这个可以存在多个的。
+&nbsp; &nbsp; #stationNum 如果为None那就是所有的车次,stationtime格式：2013-01-02 starttime：00:00--24:00
+&nbsp; &nbsp; if fromstationid == None or tostationid == None or stationtime == None:
+&nbsp; &nbsp; &nbsp; &nbsp; return
+&nbsp; &nbsp; crlf = '&'
+&nbsp; &nbsp; httpurl = []
+&nbsp; &nbsp; httpurl.append('https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=queryLeftTicket')
+&nbsp; &nbsp; httpurl.append('orderRequest.train_date=%s'%(stationtime))#开车日期 2012-12-21
+&nbsp; &nbsp; httpurl.append('orderRequest.from_station_telecode=%s'%(fromstationid))#出发站id
+&nbsp; &nbsp; httpurl.append('orderRequest.to_station_telecode=%s'%(tostationid))#到站ID
+&nbsp; &nbsp; httpurl.append('orderRequest.train_no=%s'%(stationNum))#列车
+&nbsp; &nbsp; httpurl.append('trainPassType=%s'%('QB'))#路过类型，全部
+&nbsp; &nbsp; httpurl.append(r'trainClass=QB%23D%23Z%23T%23K%23QT%23')#%23 == #QB 全部 D:动车 Z：直达等
+&nbsp; &nbsp; httpurl.append('includeStudent=00')#是否是学生，默认为否
+&nbsp; &nbsp; httpurl.append('seatTypeAndNum=')#未知
+&nbsp; &nbsp; httpurl.append('orderRequest.start_time_str=%s'%(starttime.replace(':','%3A')))
+&nbsp; &nbsp; url = crlf.join(httpurl)
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Accept:text/plain, */*",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=init"])
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+#查询哪到哪的所有车的时间和ID。ID以后要用
+def GetTrainNumList(date,fromstationid,tostationid,starttime):#date格式：2013-01-02,starttime 格式:00:00--24:00
+&nbsp; &nbsp; global TrainNumList
+&nbsp; &nbsp; url = 'https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=queryststrainall'
+&nbsp; &nbsp; crlf = '&'
+&nbsp; &nbsp; gdata = []
+&nbsp; &nbsp; gdata.append('date=%s'%(date))
+&nbsp; &nbsp; gdata.append('fromstation=%s'%(fromstationid))
+&nbsp; &nbsp; gdata.append('tostation=%s'%(tostationid))
+&nbsp; &nbsp; gdata.append('starttime=%s%%3A%s--%s%%3A%s'%(starttime[0:2],starttime[3:5],starttime[7:9],starttime[10:12]))
+&nbsp; &nbsp; data = crlf.join(gdata)
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,data)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; TrainNumList = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; TrainNumList = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return TrainNumList
+#通过列车号，转化为唯一ID,必须在GetTrainNumList）成功调用之后
+def ChangeToTrainNumId(train_no):
+&nbsp; &nbsp; index = TrainNumList.find(train_no)
+&nbsp; &nbsp; if index <= -1:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; begin = index - TrainNumList[index::-1].find('{')
+&nbsp; &nbsp; begin = begin + TrainNumList[begin:].find(r'"id":')
+&nbsp; &nbsp; begin = begin + TrainNumList[begin+6:].find(r'"')-6
+&nbsp; &nbsp; end = begin + TrainNumList[begin+1:].find(r'"')
+&nbsp; &nbsp; return TrainNumList[begin:end+1]
+#用于选择，查询后的可预定的车次字符串
+def choiceSubmitNum(TrainId,info):
+&nbsp; &nbsp; begin = 0
+&nbsp; &nbsp; while True:
+&nbsp; &nbsp; &nbsp; &nbsp; temp = info[begin:].find('onclick=javascript:getSelected(')
+&nbsp; &nbsp; &nbsp; &nbsp; if temp == -1:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break
+&nbsp; &nbsp; &nbsp; &nbsp; begin += temp
+&nbsp; &nbsp; &nbsp; &nbsp; begin += info[begin:].find("'")
+&nbsp; &nbsp; &nbsp; &nbsp; end =begin+1+ info[begin+1:].find("'")
+&nbsp; &nbsp; &nbsp; &nbsp; if info[begin+1:end].find(TrainId) >= 0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo = info[begin+1:end]
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return backinfo
+&nbsp; &nbsp; return None
+def strtohex(nstr):
+&nbsp; &nbsp; tstr = ''
+&nbsp; &nbsp; for i in nstr:
+&nbsp; &nbsp; &nbsp; &nbsp; tstr+=str(hex(ord(i)))
+&nbsp; &nbsp; tstr = tstr.replace('0x','%')
+&nbsp; &nbsp; return tstr.upper()
+#得到提交定单的令牌,相当于点击预定
+def submitRequest(selectStr,train_date ,start_time_str):#返回的结果，之所以不使用全局变量是因为，这个可以存在多个的。
+&nbsp; &nbsp; #selectStr 此是点击查询后得到的字符串列表，以#分开的
+&nbsp; &nbsp; #train_date 开车日期，例如：2012-12-21
+&nbsp; &nbsp; #start_time_str 00:00--24:00'
+&nbsp; &nbsp; if selectStr == None:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; selectStr_arr = selectStr.split("#")
+&nbsp; &nbsp; station_train_code=selectStr_arr[0]#车次
+&nbsp; &nbsp; lishi=selectStr_arr[1]#历时
+&nbsp; &nbsp; starttime=selectStr_arr[2]#开车时间&nbsp;
+&nbsp; &nbsp; trainno=selectStr_arr[3]#车次编号,唯一
+&nbsp; &nbsp; from_station_telecode=selectStr_arr[4]#出发站编号，字符
+&nbsp; &nbsp; to_station_telecode=selectStr_arr[5]#到站编号，字符
+&nbsp; &nbsp; arrive_time=selectStr_arr[6]#到达时间
+&nbsp; &nbsp; from_station_name=selectStr_arr[7]#出发站名字
+&nbsp; &nbsp; to_station_name=selectStr_arr[8]#到站名字
+&nbsp; &nbsp; from_station_no=selectStr_arr[9]#出发站编号，数字
+&nbsp; &nbsp; to_station_no=selectStr_arr[10]#到站编号，数字
+&nbsp; &nbsp; ypInfoDetail=selectStr_arr[11]#暂时不知道
+&nbsp; &nbsp; mmStr = selectStr_arr[12]#暂时不知道
+&nbsp; &nbsp; locationCode = selectStr_arr[13]
+&nbsp; &nbsp; lishi = lishi.replace(':','%3A')
+&nbsp; &nbsp; starttime = starttime.replace(':','%3A')
+&nbsp; &nbsp; arrive_time = arrive_time.replace(':','%3A')
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('station_train_code=%s'%(station_train_code))
+&nbsp; &nbsp; data.append('train_date=%s'%(train_date))#车的日期，年月日 '2013-02-25'
+&nbsp; &nbsp; data.append('seattype_num=')#未知
+&nbsp; &nbsp; data.append('from_station_telecode=%s'%(from_station_telecode))
+&nbsp; &nbsp; data.append('to_station_telecode=%s'%(to_station_telecode))
+&nbsp; &nbsp; data.append('include_student=00')#学生与否
+&nbsp; &nbsp; data.append('from_station_telecode_name=%s'%(strtohex(from_station_name)))#
+&nbsp; &nbsp; data.append('to_station_telecode_name=%s'%(strtohex(to_station_name)))
+&nbsp; &nbsp; data.append('round_train_date=%s'%(train_date))#往返日期
+&nbsp; &nbsp; data.append('round_start_time_str=%s'%(start_time_str.replace(':','%3A')))#出发时间范围
+&nbsp; &nbsp; data.append('single_round_type=%s'%('1'))#是否往返
+&nbsp; &nbsp; data.append('train_pass_type=%s'%('QB'))#列车路过的类型
+&nbsp; &nbsp; data.append('train_class_arr=%s'%('QB%23D%23Z%23T%23K%23QT%23'))#获取列车类别，为多选框，#号分隔
+&nbsp; &nbsp; data.append('start_time_str=%s'%(start_time_str.replace(':','%3A')))
+&nbsp; &nbsp; data.append('lishi=%s'%(lishi))#历时时间
+&nbsp; &nbsp; data.append('train_start_time=%s'%(starttime))
+&nbsp; &nbsp; data.append('trainno4=%s'%(trainno))#列车ID，唯一性的。5700000Z6809
+&nbsp; &nbsp; data.append('arrive_time=%s'%(arrive_time))#到站时间
+&nbsp; &nbsp; data.append('from_station_name=%s'%(strtohex(from_station_name)))
+&nbsp; &nbsp; data.append('to_station_name=%s'%(strtohex(to_station_name)))
+&nbsp; &nbsp; data.append('from_station_no=%s'%(from_station_no))
+&nbsp; &nbsp; data.append('to_station_no=%s'%(to_station_no))
+&nbsp; &nbsp; data.append('ypInfoDetail=%s'%(ypInfoDetail))
+&nbsp; &nbsp; data.append('mmStr=%s'%(mmStr))
+&nbsp; &nbsp; data.append('locationCode=%s'%(locationCode))
+&nbsp; &nbsp; senddata = Crlf.join(data)
+
+
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=submutOrderRequest")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer: https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=init",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Content-Type: application/x-www-form-urlencoded"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,senddata)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; curl.getinfo(pycurl.RESPONSE_CODE)
+&nbsp; &nbsp; code = curl.getinfo(pycurl.RESPONSE_CODE)
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; #print b.getvalue()
+&nbsp; &nbsp; if code == 302:
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl = pycurl.Curl()
+&nbsp; &nbsp; &nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=init")
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.HTTPHEADER,["Referer:https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=init"])
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.perform()
+&nbsp; &nbsp; &nbsp; &nbsp; #print '2',b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; initcurl.close()
+&nbsp; &nbsp; &nbsp; &nbsp; return b.getvalue()
+&nbsp; &nbsp; return None
+#得到提交订单，识别码
+def getrandCheckCode():
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; f = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/passCodeNewAction.do?module=passenger&rand=randp")
+&nbsp; &nbsp; #https://www.12306.cn/otsweb/passCodeAction.do?rand=randp")
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=init"])
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, f.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = f.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+#从html得到其值，<name='hyy' value='china'>
+def getvalue(info,name):
+&nbsp; &nbsp; begin = info.find(name)
+&nbsp; &nbsp; if begin == -1:
+&nbsp; &nbsp; &nbsp; &nbsp; return ''
+&nbsp; &nbsp; if cmp(info[begin-6:begin],'name="') != 0:
+&nbsp; &nbsp; &nbsp; &nbsp; return ''
+&nbsp; &nbsp; begin = begin+info[begin:].find('value="')
+&nbsp; &nbsp; end = begin + 7 + info[begin+7:].find('"')
+&nbsp; &nbsp; return info[begin+7:end]
+def CheckInMyTicket(submitRequestInfo,randCode,peoples):
+&nbsp; &nbsp; #submitRequest返回的数据，也可以通过，它来验证，返回数据的正确性 ，如果订单成功就会返回{"errMsg":"Y"}
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; token = getvalue(submitRequestInfo,'org.apache.struts.taglib.html.TOKEN')
+&nbsp; &nbsp; if len(token)<=1:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; data.append('org.apache.struts.taglib.html.TOKEN=%s'%(token))
+&nbsp; &nbsp; data.append('leftTicketStr=%s'%(getvalue(submitRequestInfo,'leftTicketStr')))
+&nbsp; &nbsp; data.append('textfield=%s'%(strtohex(getvalue(submitRequestInfo,'textfield'))))
+&nbsp; &nbsp; data.append('orderRequest.train_date=%s'%(getvalue(submitRequestInfo,'orderRequest.train_date')))
+&nbsp; &nbsp; data.append('orderRequest.train_no=%s'%(getvalue(submitRequestInfo,'orderRequest.train_no')))
+&nbsp; &nbsp; data.append('orderRequest.station_train_code=%s'%(getvalue(submitRequestInfo,'orderRequest.station_train_code')))
+&nbsp; &nbsp; data.append('orderRequest.from_station_telecode=%s'%(getvalue(submitRequestInfo,'orderRequest.from_station_telecode')))
+&nbsp; &nbsp; data.append('orderRequest.to_station_telecode=%s'%(getvalue(submitRequestInfo,'orderRequest.to_station_telecode')))
+&nbsp; &nbsp; data.append('orderRequest.seat_type_code=%s'%(getvalue(submitRequestInfo,'orderRequest.seat_type_code')))
+&nbsp; &nbsp; data.append('orderRequest.ticket_type_order_num=%s'%(getvalue(submitRequestInfo,'orderRequest.ticket_type_order_num')))
+&nbsp; &nbsp; data.append('orderRequest.bed_level_order_num=%s'%(getvalue(submitRequestInfo,'orderRequest.bed_level_order_num')))#
+&nbsp; &nbsp; data.append('orderRequest.start_time=%s'%(getvalue(submitRequestInfo,'orderRequest.start_time').replace(':','%3A')))#00%3A40&
+&nbsp; &nbsp; data.append('orderRequest.end_time=%s'%(getvalue(submitRequestInfo,'orderRequest.end_time').replace(':','%3A')))#14%3A13&
+&nbsp; &nbsp; data.append('orderRequest.from_station_name=%s'%(strtohex(getvalue(submitRequestInfo,'orderRequest.from_station_name'))))#%E5%8D%97%E6%98%8C&
+&nbsp; &nbsp; data.append('orderRequest.to_station_name=%s'%(strtohex(getvalue(submitRequestInfo,'orderRequest.to_station_name'))))#%E5%8C%97%E4%BA%AC%E8%A5%BF&
+&nbsp; &nbsp; data.append('orderRequest.cancel_flag=%s'%(getvalue(submitRequestInfo,'orderRequest.cancel_flag')))#1&
+&nbsp; &nbsp; data.append('orderRequest.id_mode=%s'%(getvalue(submitRequestInfo,'Y')))#Y&
+&nbsp; &nbsp; #最多五个人
+&nbsp; &nbsp; i = 1
+&nbsp; &nbsp; for persion in peoples.values():
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passengerTickets=%s,%s,%s,%s,%s,%s,%s,%s'%(persion['seat'],'0',persion['ticket'],strtohex(persion['name']),persion['cardtype'],persion['idcard'],'','Y'))
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('oldPassengers=%s'%(''))#&如果是在常用联系人里就会使用此项
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passenger_%d_seat=%s'%(i,persion['seat']))#1 硬座 3 硬卧 4 软卧
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passenger_%d_ticket=%s'%(i,persion['ticket']))#1&成人票，2 儿童票 3 学生票 4 残军票
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passenger_%d_name=%s'%(i,strtohex(persion['name'])))#
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passenger_%d_cardtype=%s'%(i,persion['cardtype']))#1 二代身份证 2 一代身份证 &nbsp;c 港澳通行证 G 台湾通行证 B 护照
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passenger_%d_cardno=%s'%(i,persion['idcard']))#& ID
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('passenger_%d_mobileno=%s'%(i,persion['mobileno']))#电话号
+&nbsp; &nbsp; &nbsp; &nbsp; #data.append('checkbox9=%s'%('Y'))#是否保存在学用联系人,默认是不加入
+&nbsp; &nbsp; &nbsp; &nbsp; i+=1
+&nbsp; &nbsp; while i <= 5:
+&nbsp; &nbsp; &nbsp; &nbsp; data.append('oldPassengers=%s'%(''))#&
+&nbsp; &nbsp; &nbsp; &nbsp; #data.append('checkbox9=%s'%('Y'))#Y&
+&nbsp; &nbsp; &nbsp; &nbsp; i+=1
+&nbsp; &nbsp; data.append('randCode=%s'%(randCode))#=ze9q&
+&nbsp; &nbsp; data.append('orderRequest.reserve_flag=%s'%(getvalue(submitRequestInfo,'orderRequest.reserve_flag')))#=A&
+&nbsp; &nbsp; sendcheckdata = &nbsp;Crlf.join(data)
+&nbsp; &nbsp; data.append('tFlag=%s'%('dc'))#=dc submit_form_confirm('confirmPassenger','dc')
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; #用于查询是否有票或及排队情况
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=checkOrderInfo&rand=%s"%(randCode))
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Content-Type:application/x-www-form-urlencoded",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=init#"])
+&nbsp; &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,senddata)
+&nbsp; &nbsp; time.sleep(0.2)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = ""
+&nbsp; &nbsp; print "f",b.getvalue()
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; &nbsp; &nbsp; time.sleep(0.2)#这个提交的不能太快，应该是12306防快提交
+&nbsp; &nbsp; &nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; &nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata = []
+&nbsp; &nbsp; &nbsp; &nbsp; #得到结果，如果有足够的票就返回{"checkHuimd":"Y","check608":"Y","msg":"","errMsg":"Y"}
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=getQueueCount")
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("train_date=%s"%(getvalue(submitRequestInfo,'orderRequest.train_date')))
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("train_no=%s"%(getvalue(submitRequestInfo,'orderRequest.train_no')))
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("station=%s"%(getvalue(submitRequestInfo,'orderRequest.station_train_code')))
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("seat=%s"%(persion['seat']))
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("from=%s"%(getvalue(submitRequestInfo,'orderRequest.from_station_telecode')))
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("to=%s"%(getvalue(submitRequestInfo,'orderRequest.to_station_telecode')))
+&nbsp; &nbsp; &nbsp; &nbsp; httpdata.append("ticket=%s"%(getvalue(submitRequestInfo,'leftTicketStr')))
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.URL, Crlf.join(httpdata))
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Content-Type:application/x-www-form-urlencoded",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=init#"])
+&nbsp; &nbsp; &nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; &nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; print 's',b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; time.sleep(1)#这个提交的不能太快，应该是12306防快提交
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=confirmSingleForQueue")
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Content-Type:application/x-www-form-urlencoded",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=init#"])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,sendcheckdata)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetMyPeople():#得到学用联系人
+&nbsp; &nbsp; url = "https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=getpassengerJson"
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,'')
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; train = b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; &nbsp; &nbsp; return train
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return None
+def QueryUnfinishedTicket():#查询未完成的订单
+&nbsp; &nbsp; url = "https://dynamic.12306.cn/otsweb/order/myOrderAction.do?method=queryMyOrderNotComplete&leftmenu=Y"
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:https://dynamic.12306.cn/otsweb/loginAction.do?method=login"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,'')
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; ticket = b.getvalue()
+&nbsp; &nbsp; &nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; &nbsp; &nbsp; return ticket
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return None
+def WaitQueryCheckOutInfo():#得到提交订单的结果
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/otsweb/order/myOrderAction.do?method=queryOrderWaitTime&tourFlag=dc")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Content-Type:application/x-www-form-urlencoded",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Referer:https://dynamic.12306.cn/otsweb/order/confirmPassengerAction.do?method=init"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def writefile_map(name,data):
+&nbsp; &nbsp; files = open(name,'wb')
+&nbsp; &nbsp; files.write(data)
+&nbsp; &nbsp; files.close()
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; os.startfile(name)
+&nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; im = Image.open(name)
+&nbsp; &nbsp; &nbsp; &nbsp; im.show()
+&nbsp; &nbsp; #os.startfile(name)
+def ReadConfig():
+&nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp;config = ConfigParser.ConfigParser()
+&nbsp; &nbsp; &nbsp;config.readfp(open('/home/china/桌面/myPython/cookie.ini',"rb"))
+&nbsp; &nbsp; &nbsp;return config.get("Myini","cookie")
+&nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; return ''
+def WriteConfig(nCookie):
+&nbsp; &nbsp; config = ConfigParser.ConfigParser()
+&nbsp; &nbsp; config.set("Myini","cookie",nCookie)
+&nbsp; &nbsp; cf.write(open("/home/china/桌面/myPython/cookie.ini", "w"))
+def FlashAllTrainListCode():
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/passCodeActi0n.do?rand=rrand?0.38251218537598275")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/trainPassStationByTrainCode.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, headerCookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetAllTrainListCode():
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/passCodeActi0n.do?rand=rrand")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/trainPassStationByTrainCode.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, headerCookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetAllTrainListStationtoStationAndTrain(nmonth,nday,train,rand,startStation,arriveStation):
+&nbsp; &nbsp; #condition=&nmonth2=08&nmonth2_new_value=true&
+&nbsp; &nbsp; #nday2=08&nday2_new_value=false&
+&nbsp; &nbsp; #startStation_ticketPrice1=%E5%8C%97%E4%BA%AC&
+&nbsp; &nbsp; #startStation_ticketPrice1_new_value=false&
+&nbsp; &nbsp; #arriveStation_ticketPrice1=%E5%8D%97%E6%98%8C&
+&nbsp; &nbsp; #arriveStation_ticketPrice1_new_value=false&
+&nbsp; &nbsp; #trainCode=Z65&
+&nbsp; &nbsp; #trainCode_new_value=false&rFlag=1&name_ckball=value_ckball&tFlagDC=DC&tFlagZ=Z&tFlagT=T&tFlagK=K&tFlagPK=PK&tFlagPKE=PKE&tFlagLK=LK&randCode=1
+
+
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('condition=')
+&nbsp; &nbsp; data.append('nmonth2=%s'%(nmonth))
+&nbsp; &nbsp; data.append('nmonth2_new_value=true')
+&nbsp; &nbsp; data.append('nday2=%s'%(nday))
+&nbsp; &nbsp; data.append('nday2_new_value=false')
+&nbsp; &nbsp; data.append('startStation_ticketPrice1=%s'%(startStation))
+&nbsp; &nbsp; data.append('startStation_ticketPrice1_new_value=false')
+&nbsp; &nbsp; data.append('arriveStation_ticketPrice1=%s'%(arriveStation))
+&nbsp; &nbsp; data.append('arriveStation_ticketPrice1_new_value=false')
+&nbsp; &nbsp; data.append('trainCode=%s'%(train))
+&nbsp; &nbsp; data.append('trainCode_new_value=false&rFlag=1&name_ckball=value_ckball&tFlagDC=DC&tFlagZ=Z&tFlagT=T&tFlagK=K&tFlagPK=PK&tFlagPKE=PKE&tFlagLK=LK')
+&nbsp; &nbsp; data.append('randCode=%s'%(rand))
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; #print senddata
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/iframeTicketPriceByStation.jsp")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/ticketPriceByStation.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,senddata)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetAllTrainListStationtoStation(nmonth,nday,rand,startStation,arriveStation):
+&nbsp; &nbsp; #nmonth1=08&
+&nbsp; &nbsp; #nmonth1_new_value=true&
+&nbsp; &nbsp; #nday1=08&
+&nbsp; &nbsp; #nday1_new_value=false&
+&nbsp; &nbsp; #startStation=%E5%8D%97%E6%98%8C&
+&nbsp; &nbsp; #startStation_new_value=false&
+&nbsp; &nbsp; #arriveStation=%E5%8C%97%E4%BA%AC&
+&nbsp; &nbsp; #arriveStation_new_value=false&rFlag=1&name_ckball=value_ckball&tFlagDC=DC&tFlagZ=Z&tFlagT=T&tFlagK=K&tFlagPK=PK&tFlagPKE=PKE&tFlagLK=LK&randCode=5
+
+
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('nmonth1=%s'%(nmonth))
+&nbsp; &nbsp; data.append('nmonth1_new_value=true')
+&nbsp; &nbsp; data.append('nday1=%s'%(nday))
+&nbsp; &nbsp; data.append('nmonth1_new_value=false')
+&nbsp; &nbsp; data.append('startStation=%s'%(startStation))
+&nbsp; &nbsp; data.append('trainCode1_new_value=false')
+&nbsp; &nbsp; data.append('arriveStation=%s'%(arriveStation))
+&nbsp; &nbsp; data.append('arriveStation_new_value=false&rFlag=1&name_ckball=value_ckball&tFlagDC=DC&tFlagZ=Z&tFlagT=T&tFlagK=K&tFlagPK=PK&tFlagPKE=PKE&tFlagLK=LK')
+&nbsp; &nbsp; data.append('randCode=%s'%(rand))
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; #print senddata
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/iframeTrainInfoByStation.jsp")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/trainInfoByStation.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,senddata)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetAllTrainList(nmonth,nday,trainCode,rand):
+&nbsp; &nbsp; #nmonth1=03&nmonth1_new_value=false&nday1=13&nday1_new_value=false&trainCode1=Z68&trainCode1_new_value=true&randCode=9
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('nmonth1=%s'%(nmonth))
+&nbsp; &nbsp; data.append('nmonth1_new_value=false')
+&nbsp; &nbsp; data.append('nday1=%s'%(nday))
+&nbsp; &nbsp; data.append('nmonth1_new_value=false')
+&nbsp; &nbsp; data.append('trainCode1=%s'%(trainCode))
+&nbsp; &nbsp; data.append('trainCode1_new_value=true')
+&nbsp; &nbsp; data.append('startStation_ticketPrice1=保定')
+&nbsp; &nbsp; data.append('randCode=%s'%(rand))
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; #print senddata
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/iframeTrainPassStationByTrainCode.jsp")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/trainPassStationByTrainCode.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,senddata)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+#TrainNumStr T15 ,date 2012-12-21
+def GetStationFromTrainNumStr(TrainNumStr,ndate):
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('method=getTrainName')
+&nbsp; &nbsp; data.append('inputValue='+TrainNumStr)
+&nbsp; &nbsp; data.append('date='+ndate.replace("-",""))
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; print senddata
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)&nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/autocomplete.do")
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/trainPassStationByTrainCode.jsp",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"x-requested-with: XMLHttpRequest"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,senddata)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetTrainAllListFromStationAndTimeAndTrainNum(train_no,from_station_telecode,to_station_telecode,depart_date):
+&nbsp; &nbsp; if(train_no == None or from_station_telecode == None or to_station_telecode == None or &nbsp;depart_date == None):
+&nbsp; &nbsp; &nbsp; &nbsp; return ""
+&nbsp; &nbsp; crlf = '&'
+&nbsp; &nbsp; httpurl = []
+&nbsp; &nbsp; httpurl.append('https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=queryaTrainStopTimeByTrainNo')
+&nbsp; &nbsp; httpurl.append('train_no='+train_no)
+&nbsp; &nbsp; httpurl.append('from_station_telecode='+from_station_telecode)
+&nbsp; &nbsp; httpurl.append('to_station_telecode='+to_station_telecode)
+&nbsp; &nbsp; httpurl.append('depart_date='+depart_date)
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; url = crlf.join(httpurl)
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with: XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"https://dynamic.12306.cn/otsweb/order/querySingleAction.do?method=init"])
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write) &nbsp;
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def ChangeStationFromTrainNumStrRe(info):
+&nbsp; &nbsp; if info == None:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; com = r'''parent.mygrid.addRow\(\d+,"\d+,(.*?)\^.*?self,(\d\d:\d\d),(\d\d:\d\d),(\d\d:\d\d),.*?,.*?\^self,.*?,.*?,(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?)"'''#
+&nbsp; &nbsp; backinfo = {}
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(info):
+&nbsp; &nbsp; &nbsp; &nbsp; #print m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7),m.group(8),m.group(9),m.group(10),m.group(11),m.group(12),m.group(13)
+&nbsp; &nbsp; &nbsp; &nbsp; if len(m.group(1))>1:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo[m.group(1)]=[m.group(5),m.group(6),m.group(7),m.group(8),m.group(9),m.group(10),m.group(11),m.group(12),m.group(13)];
+&nbsp; &nbsp; if len(backinfo) == 0:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; print backinfo
+
+
+def GetTrainAllListFromStationAndTimeAndTrainNumRe(info):
+&nbsp; &nbsp; if info == None:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; com = r'''parent.mygrid.addRow\(\d+,"\d+,(.*?)\^.*?self,.*?self,(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(\d\d:\d\d),(\d\d:\d\d),(\d\d:\d\d).*?"'''
+&nbsp; &nbsp; backinfo = {}
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(info):
+&nbsp; &nbsp; &nbsp; &nbsp; #print m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7),m.group(8),m.group(9),m.group(10),m.group(11),m.group(12),m.group(13)
+&nbsp; &nbsp; &nbsp; &nbsp; if len(m.group(1))>1:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo[m.group(1)]=[m.group(11),m.group(12),m.group(13),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7),m.group(8),m.group(9),m.group(10)];
+&nbsp; &nbsp; if len(backinfo) == 0:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; return backinfo
+def ChangeStationFromTrainNumStr(statin):
+&nbsp; &nbsp; com = r'''<option.*?value='(.*?)_(.*?)'>.*?\（(.*?)→(.*?)\）.*?</option>'''#
+&nbsp; &nbsp; backinfo = []
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(statin):
+&nbsp; &nbsp; &nbsp; &nbsp; listinfo = [m.group(1),m.group(2),m.group(3),m.group(4)]
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo.append(listinfo)
+&nbsp; &nbsp; return backinfo
+def GetInfoFromTrainNum():
+&nbsp; &nbsp; statin = 'T145'
+&nbsp; &nbsp; date = '2013-03-14'
+&nbsp; &nbsp; getRandAndCookie()
+&nbsp; &nbsp; GetAllTrainListCode()
+&nbsp; &nbsp; info = &nbsp;GetStationFromTrainNumStr(statin,date)
+&nbsp; &nbsp; infolist = ChangeStationFromTrainNumStr(info)
+&nbsp; &nbsp; print info.decode("utf-8")
+&nbsp; &nbsp; GetTrainList()
+&nbsp; &nbsp; for i in infolist:
+&nbsp; &nbsp; &nbsp; &nbsp; print GetTrainAllListFromStationAndTimeAndTrainNum(i[1],TranCityToId(i[2]),TranCityToId(i[3]),date)
+def GetAllTrainNameList():
+&nbsp; &nbsp; TrainNameList = []
+&nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; tfile = open('traininfo.txt','r')
+&nbsp; &nbsp; &nbsp; &nbsp; buf = tfile.readline()
+&nbsp; &nbsp; &nbsp; &nbsp; while buf:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; be = buf.find(';')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if be > 0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; en = buf[be+1:].find(';')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if en > 0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; TrainNameList.append(buf[be+1:en+be+1])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; buf = tfile.readline()
+&nbsp; &nbsp; &nbsp; &nbsp; tfile.close()
+&nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; return TrainNameList
+def GetTrainPriceInfo(info):
+&nbsp; &nbsp; if info == None or len(info) < 100:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; com = '''innerHTML="(<.*?>(.+?)</.*?>.*?（(.*?)）.*?<.*?>(.+?)</.*?>.*?<.*?>(.+?)</.*?>.*?<.*?>(.+?)</.*?>.*?)"'''#
+&nbsp; &nbsp; backinfo = [[],{}]
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(info):
+&nbsp; &nbsp; &nbsp; &nbsp; #print m.group(2),m.group(3).decode("UTF-8"),m.group(4).decode("UTF-8"),m.group(5).decode("UTF-8"),m.group(6)
+&nbsp; &nbsp; &nbsp; &nbsp; listinfo = [m.group(2),m.group(3),m.group(4),m.group(5),m.group(6)]
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo[0] = listinfo
+&nbsp; &nbsp; &nbsp; &nbsp; break
+
+
+&nbsp; &nbsp; if(len(backinfo[0]) == 0):
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; com = '''parent.mygrid.addRow\\(.*?"(.*?),(.*?)\\^.*?,.*?,(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?),(.*?)"'''
+&nbsp; &nbsp; listinfo = {}
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(info):
+&nbsp; &nbsp; &nbsp; &nbsp; #print m.group(1),m.group(2).decode("UTF-8"),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7),m.group(8),m.group(9),m.group(10),m.group(11),m.group(12),m.group(13),m.group(14)
+&nbsp; &nbsp; &nbsp; &nbsp; listinfo[m.group(1)] = [m.group(2),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7),m.group(8),m.group(9),m.group(10),m.group(11),m.group(12),m.group(13),m.group(14)]
+&nbsp; &nbsp; backinfo[1] = listinfo
+&nbsp; &nbsp; return backinfo
+def savePrice(priceListFile,infolist):
+&nbsp; &nbsp; for sinfolist in infolist[0]:
+&nbsp; &nbsp; &nbsp; &nbsp; priceListFile.write(sinfolist)
+&nbsp; &nbsp; &nbsp; &nbsp; priceListFile.write(';')
+&nbsp; &nbsp; for i in range(1,len(infolist)):
+&nbsp; &nbsp; &nbsp; &nbsp; jsoninfo = &nbsp;json.dumps(infolist[i], encoding="UTF-8", ensure_ascii=False)
+&nbsp; &nbsp; &nbsp; &nbsp; priceListFile.write(jsoninfo.encode('UTF-8'))
+&nbsp; &nbsp; priceListFile.write('\n')
+def GetQuery(TrainNameList):#查询 车次及价格
+&nbsp; &nbsp; if TrainNameList == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'can find TrainNameList'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; backinfo = []
+&nbsp; &nbsp; date = time.strftime("%Y-%m-%d",)
+&nbsp; &nbsp; nmonth = '%02d'%(time.localtime(time.time()).tm_mon)
+&nbsp; &nbsp; nday = '%02d'%(time.localtime(time.time()).tm_mday)
+&nbsp; &nbsp; trainCode = "K106"
+&nbsp; &nbsp; j = 0
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; getRandAndCookie()
+&nbsp; &nbsp; print 'alltrainNum:',len(TrainNameList)
+&nbsp; &nbsp; #codemap = GetAllTrainListCode()
+&nbsp; &nbsp; #writefile_map('codein.png',codemap)
+&nbsp; &nbsp; #randcode = raw_input('imput code:')
+&nbsp; &nbsp; try:
+&nbsp; &nbsp; &nbsp; &nbsp; priceListFile = open('trainproce.txt','r')
+&nbsp; &nbsp; &nbsp; &nbsp; buf = priceListFile.readline()
+&nbsp; &nbsp; &nbsp; &nbsp; while buf:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; liinfo = [[],{}]
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if len(buf)>20:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f = buf.find('{')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if f < 0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; liinfo[0] = buf[0:f-1].split(';')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; liinfo[1] = eval(buf[f:])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo.append(liinfo)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; buf = priceListFile.readline()
+&nbsp; &nbsp; &nbsp; &nbsp; priceListFile.close()
+&nbsp; &nbsp; except:
+&nbsp; &nbsp; &nbsp; &nbsp;pass
+&nbsp; &nbsp; print len(backinfo)
+
+
+&nbsp; &nbsp; priceListFile = open('trainproce.txt','w')
+&nbsp; &nbsp; j = 0
+&nbsp; &nbsp; for bprict in backinfo:
+&nbsp; &nbsp; &nbsp; &nbsp; j = j +1
+&nbsp; &nbsp; &nbsp; &nbsp; savePrice(priceListFile,bprict)
+
+
+&nbsp; &nbsp; '''for trainCode in TrainNameList:
+&nbsp; &nbsp; &nbsp; &nbsp; for bprict in backinfo:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if trainCode == bprict[0][0]:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; trainCode = None
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break
+&nbsp; &nbsp; &nbsp; &nbsp; if None == trainCode:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; continue
+&nbsp; &nbsp; &nbsp; &nbsp; codemap = GetAllTrainListCode()
+&nbsp; &nbsp; &nbsp; &nbsp; infolist = None
+&nbsp; &nbsp; &nbsp; &nbsp; print trainCode,
+&nbsp; &nbsp; &nbsp; &nbsp; for i in range(0,10):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; info = GetAllTrainList(nmonth,nday,trainCode,i)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; infolist = GetTrainPriceInfo(info)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if infolist != None:#已查到
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; savePrice(priceListFile,infolist)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; j = j +1
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo.append(infolist)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break
+&nbsp; &nbsp; &nbsp; &nbsp; if infolist == None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print 'error',j
+&nbsp; &nbsp; &nbsp; &nbsp; else:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print 'ok',j'''
+&nbsp; &nbsp; &nbsp; &nbsp; #randcode = raw_input('imput code:')
+&nbsp; &nbsp; priceListFile.close()
+&nbsp; &nbsp; priceListFiles = open('trainproce_a_t.txt','a')
+&nbsp; &nbsp; nowbacklen = len(backinfo)
+&nbsp; &nbsp; for cc in range(0,nowbacklen):
+&nbsp; &nbsp; &nbsp; &nbsp; print cc
+&nbsp; &nbsp; &nbsp; &nbsp; subinfo = backinfo[cc]
+&nbsp; &nbsp; &nbsp; &nbsp; infoRe = None
+&nbsp; &nbsp; &nbsp; &nbsp; ssubinfo = subinfo[0]
+&nbsp; &nbsp; &nbsp; &nbsp; for j in range(1,len(ssubinfo[1])+1):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; subbackinfo = {}
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; for k in range(j+1,len(ssubinfo[1])+1):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; codemap = GetAllTrainListCode()
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print ssubinfo[0],subinfo[1]['%d'%(j)][0].decode('utf-8'),subinfo[1]['%d'%(k)][0].decode('utf-8'),
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; for i in range(0,10):
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #json.dumps(infolist[1], encoding="UTF-8", ensure_ascii=False)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; infoRe = GetTrainAllListFromStationAndTimeAndTrainNumRe(
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; GetAllTrainListStationtoStationAndTrain(nmonth,nday,ssubinfo[0],i,subinfo[1]['%d'%(j)][0],subinfo[1]['%d'%(k)][0]))
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;# print 'y',infoRe == None,infoRe
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if infoRe != None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print 'h',infoRe
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if infoRe == None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print 'error'
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; else:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; intoinfo = [subinfo[1]['%d'%(k)][0]]
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; for t in infoRe[ssubinfo[0]]:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; intoinfo.append(t)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #print intoinfo
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; subbackinfo['%d'%(k-j)] = intoinfo
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; priceListFiles.write(ssubinfo[0])#车次
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; priceListFiles.write(';')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #jsoninfo = &nbsp;json.dumps(intoinfo, encoding="UTF-8", ensure_ascii=False)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; priceListFiles.write(str(intoinfo).encode('UTF-8'))
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; priceListFiles.write('\n')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print 'ok'
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if len(subbackinfo)>0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; backinfo.append([[subinfo[0],subinfo[1],subbackinfo['1'],subbackinfo['%d'%(len(subbackinfo)-1)],len(subbackinfo)],
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;subbackinfo])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #print backinfo[cc]
+&nbsp; &nbsp; &nbsp; &nbsp; print len(backinfo)
+&nbsp; &nbsp; &nbsp; &nbsp; #break
+&nbsp; &nbsp; priceListFiles.close()
+&nbsp; &nbsp; priceListFile = open('trainproce_a.txt','w')
+&nbsp; &nbsp; j = 0
+&nbsp; &nbsp; for bprict in backinfo:
+&nbsp; &nbsp; &nbsp; &nbsp; j = j +1
+&nbsp; &nbsp; &nbsp; &nbsp; savePrice(priceListFile,bprict)
+
+
+&nbsp; &nbsp; priceListFile.close()
+&nbsp; &nbsp; return backinfo
+
+
+
+
+def GetTicket(use,password,fromcity,tocity,date,stationName,Peoples):
+&nbsp; &nbsp; getRandAndCookie()
+&nbsp; &nbsp; codemap = getEnterRandCode()
+
+
+&nbsp; &nbsp; writefile_map('codein.png',codemap)
+&nbsp; &nbsp; randcode = raw_input('imput code:')
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; newkey = GetNewKey()
+&nbsp; &nbsp; print newkey
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; #getRandCode()
+
+
+&nbsp; &nbsp; info = setuseandpassword(randcode,use,password,newkey)
+&nbsp; &nbsp; #print info
+&nbsp; &nbsp; backinfo = transitionGetUseInfo(info)
+&nbsp; &nbsp; if backinfo.find('error') >=0:#也就是没有错误时
+&nbsp; &nbsp; &nbsp; &nbsp; print backinfo
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; print "提示：",backinfo.decode("UTF-8")
+&nbsp; &nbsp; backinfo = GetTrainList()
+&nbsp; &nbsp; if backinfo == None:
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; fromstationid = TranCityToId(fromcity)
+&nbsp; &nbsp; tostationid = TranCityToId(tocity)
+&nbsp; &nbsp; if fromstationid == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print '出发站未找到'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; if tostationid == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print '到站未找到'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; starttime = '00:00--24:00'
+&nbsp; &nbsp; isstudent = False
+&nbsp; &nbsp; seatType = ''
+&nbsp; &nbsp; backinfo = GetTrainNumList(date,fromstationid,tostationid,starttime)
+&nbsp; &nbsp; print backinfo
+&nbsp; &nbsp; if backinfo == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'GetTrainNumList 错误'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; print stationName
+&nbsp; &nbsp; stationNum = ChangeToTrainNumId(stationName)
+&nbsp; &nbsp; if stationNum == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'ChangeToTrainNumId error'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; trainsubmitinfo = QueryTrain(fromstationid,tostationid,date,stationNum,starttime)
+&nbsp; &nbsp; #print trainsubmitinfo
+&nbsp; &nbsp; if trainsubmitinfo == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'QueryTrain error'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; info = submitRequest(choiceSubmitNum(stationNum,trainsubmitinfo),date,starttime)
+&nbsp; &nbsp; #print info
+&nbsp; &nbsp; if info == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'submitRequest error'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; codemap = getrandCheckCode()
+&nbsp; &nbsp; if len(codemap)<=0:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'getrandCheckCode error'
+&nbsp; &nbsp; &nbsp; &nbsp; return None
+&nbsp; &nbsp; writefile_map('checkout.png',codemap)
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; randcode = raw_input('imput code:')
+&nbsp; &nbsp; return CheckInMyTicket(info,randcode,Peoples)
+&nbsp; &nbsp; #print GetMyPeople()
+def RistTrain():#从12306得到数据库
+&nbsp; &nbsp; statin = 'T145'
+&nbsp; &nbsp; date = time.strftime("%Y-%m-%d",time.localtime(time.time()))
+&nbsp; &nbsp; print date
+&nbsp; &nbsp; getRandAndCookie()
+&nbsp; &nbsp; GetAllTrainListCode()
+&nbsp; &nbsp; GetTrainList()
+&nbsp; &nbsp; f = open("info.txt","w")
+&nbsp; &nbsp; for i in range(0,9999):
+&nbsp; &nbsp; &nbsp; &nbsp; statin = "%s"%(i)#raw_input('imput code:')
+&nbsp; &nbsp; &nbsp; &nbsp; info = &nbsp;GetStationFromTrainNumStr(statin,date)
+&nbsp; &nbsp; &nbsp; &nbsp; f.write(info)
+&nbsp; &nbsp; &nbsp; &nbsp; infolist = ChangeStationFromTrainNumStr(info)
+&nbsp; &nbsp; &nbsp; &nbsp; print info.decode("utf-8")
+&nbsp; &nbsp; for i in range(0,9999):
+&nbsp; &nbsp; &nbsp; &nbsp; statin = "G%s"%(i)#raw_input('imput code:')
+&nbsp; &nbsp; &nbsp; &nbsp; info = &nbsp;GetStationFromTrainNumStr(statin,date)
+&nbsp; &nbsp; &nbsp; &nbsp; f.write(info)
+&nbsp; &nbsp; &nbsp; &nbsp; infolist = ChangeStationFromTrainNumStr(info)
+&nbsp; &nbsp; &nbsp; &nbsp; print info.decode("utf-8")
+&nbsp; &nbsp; f.close()
+&nbsp; &nbsp; f = open("info.txt","r")
+&nbsp; &nbsp; allinfo = {}
+&nbsp; &nbsp; line &nbsp;= f.readline()
+&nbsp; &nbsp; num = 0
+&nbsp; &nbsp; while line:
+&nbsp; &nbsp; &nbsp; &nbsp; infolist = ChangeStationFromTrainNumStr(line)
+&nbsp; &nbsp; &nbsp; &nbsp; for i in infolist:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print '1',num,i[1]
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; allinfo[i[1]] = i[0]+';'+i[2]+';'+i[3]
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; num = num +1
+&nbsp; &nbsp; &nbsp; &nbsp; line = f.readline()
+&nbsp; &nbsp; f.close()
+&nbsp; &nbsp; num = 0
+&nbsp; &nbsp; w = open('train.txt','w')
+&nbsp; &nbsp; for subinfo in allinfo.keys():
+&nbsp; &nbsp; &nbsp; &nbsp; print num,'2',subinfo,allinfo[subinfo]
+&nbsp; &nbsp; &nbsp; &nbsp; num = num+1
+&nbsp; &nbsp; &nbsp; &nbsp; w.write(subinfo)
+&nbsp; &nbsp; &nbsp; &nbsp; w.write(';')
+&nbsp; &nbsp; &nbsp; &nbsp; w.write(allinfo[subinfo])
+&nbsp; &nbsp; &nbsp; &nbsp; w.write('\n')
+&nbsp; &nbsp; w.close()
+&nbsp; &nbsp; q = open('traininfo.txt','w')
+&nbsp; &nbsp; sp = ';'
+&nbsp; &nbsp; num = 0
+&nbsp; &nbsp; for subinfo in allinfo.keys():
+&nbsp; &nbsp; &nbsp; &nbsp; print num,'3',allinfo[subinfo]
+&nbsp; &nbsp; &nbsp; &nbsp; num = &nbsp;num +1
+&nbsp; &nbsp; &nbsp; &nbsp; si = allinfo[subinfo].split(';')
+&nbsp; &nbsp; &nbsp; &nbsp; ginfo = GetTrainAllListFromStationAndTimeAndTrainNum(subinfo,TranCityToId(si[1]),TranCityToId(si[2]),date)
+&nbsp; &nbsp; &nbsp; &nbsp; q.write(subinfo)
+&nbsp; &nbsp; &nbsp; &nbsp; q.write(';')
+&nbsp; &nbsp; &nbsp; &nbsp; q.write(allinfo[subinfo])
+&nbsp; &nbsp; &nbsp; &nbsp; q.write(';')
+&nbsp; &nbsp; &nbsp; &nbsp; if ginfo.find('<')< 0:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; q.write(ginfo)
+&nbsp; &nbsp; &nbsp; &nbsp; q.write('\n')
+&nbsp; &nbsp; q.close()
+&nbsp; &nbsp; os.remove('train.txt')
+&nbsp; &nbsp; os.remove('info.txt')
+def GetProvince():
+&nbsp; &nbsp; url = 'https://dynamic.12306.cn/TrainQuery/sellTicketStation.jsp'
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, url)
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; begin = backinfo.find('p.addOption(')
+&nbsp; &nbsp; end = &nbsp;backinfo[begin:].find(''']]);'''
+)+begin+2
+&nbsp; &nbsp; return backinfo[begin+12:end]
+def GetCity(nprovince):
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('method=getCity2')
+&nbsp; &nbsp; data.append('province='+nprovince)
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/autocomplete.do")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:http://dynamic.12306.cn/TrainQuery/sellTicketStation.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,str(senddata))
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def changeGetCity(ninfo):
+&nbsp; &nbsp; com = r'''<option.*?value='(.*?)'>.*?</option>'''#
+&nbsp; &nbsp; backinfo = []
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(ninfo):
+&nbsp; &nbsp; &nbsp; &nbsp; listinfo = m.group(1)
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo.append(listinfo)
+&nbsp; &nbsp; return backinfo
+def GetCounty(nprovince,ncity):
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('method=getCountry2')
+&nbsp; &nbsp; data.append('city='+ncity)
+&nbsp; &nbsp; data.append('province='+nprovince)
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/autocomplete.do")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["x-requested-with:XMLHttpRequest",
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"Referer:http://dynamic.12306.cn/TrainQuery/sellTicketStation.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,str(senddata))
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def GetSellPlaceDetal(nprovince,ncity,ncountry):
+&nbsp; &nbsp; data =[]
+&nbsp; &nbsp; Crlf = '&'
+&nbsp; &nbsp; data.append('province='+nprovince)
+&nbsp; &nbsp; data.append('province_new_value=false')
+&nbsp; &nbsp; data.append('city='+ncity)
+&nbsp; &nbsp; data.append('province_new_value=false')
+&nbsp; &nbsp; data.append('country='+ncountry)
+&nbsp; &nbsp; data.append('province_new_value=false')
+&nbsp; &nbsp; senddata = Crlf.join(data)
+&nbsp; &nbsp; curl = pycurl.Curl()
+&nbsp; &nbsp; b = StringIO.StringIO()
+&nbsp; &nbsp; curl.setopt(pycurl.URL, "https://dynamic.12306.cn/TrainQuery/iframeSellTicketStation.jsp")
+&nbsp; &nbsp; curl.setopt(pycurl.WRITEFUNCTION, b.write)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYPEER, False)
+&nbsp; &nbsp; curl.setopt(pycurl.SSL_VERIFYHOST, False)
+&nbsp; &nbsp; curl.setopt(pycurl.HEADERFUNCTION, gethead)
+&nbsp; &nbsp; curl.setopt(pycurl.HTTPHEADER,["Referer:http://dynamic.12306.cn/TrainQuery/sellTicketStation.jsp"])
+&nbsp; &nbsp; curl.setopt(pycurl.COOKIE,Cookie)
+&nbsp; &nbsp; curl.setopt(pycurl.POSTFIELDS,str(senddata))
+&nbsp; &nbsp; curl.perform()
+&nbsp; &nbsp; backinfo = None
+&nbsp; &nbsp; if curl.getinfo(pycurl.RESPONSE_CODE) == 200:
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo = b.getvalue()
+&nbsp; &nbsp; curl.close()
+&nbsp; &nbsp; return backinfo
+def changeSellDetal(ninfo):
+&nbsp; &nbsp; com = r'''<row id ='\d+'>.*?<cell>(.*?)</cell>.*?<cell>(.*?)</cell>.*?<cell><!\[CDATA\[ (.*?)http.*?</cell>.*?<cell>(.*?)</cell>.*?<cell>(.*?)</cell>.*?</row>'''#
+&nbsp; &nbsp; backinfo = []
+&nbsp; &nbsp; p = re.compile(com,re.DOTALL)
+&nbsp; &nbsp; for m in p.finditer(ninfo):
+&nbsp; &nbsp; &nbsp; &nbsp; listinfo = [m.group(1),m.group(2),m.group(3)[:len(m.group(3))-1],m.group(4),m.group(5)]
+&nbsp; &nbsp; &nbsp; &nbsp; backinfo.append(listinfo)
+&nbsp; &nbsp; return backinfo
+def GetSellPlace_ALL():
+&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp; print "begin"
+&nbsp; &nbsp; getRandAndCookie()
+&nbsp; &nbsp; GetAllTrainListCode()
+&nbsp; &nbsp; tProvinceString = GetProvince()
+&nbsp; &nbsp; if tProvinceString == None:
+&nbsp; &nbsp; &nbsp; &nbsp; print ' error'
+&nbsp; &nbsp; tProvince = eval(tProvinceString)
+&nbsp; &nbsp; f = open('sellinfo.txt','w')
+&nbsp; &nbsp; for &nbsp;i in tProvince:
+&nbsp; &nbsp; &nbsp; &nbsp; citystr = GetCity(i[0])
+&nbsp; &nbsp; &nbsp; &nbsp; if citystr != None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; city = changeGetCity(citystr)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; for j in city:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; countrystr = GetCounty(i[0],j)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if countrystr != None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; country = changeGetCity(countrystr)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; for k in country:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; info = GetSellPlaceDetal(i[0],j,k)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if info != None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; tinfo = &nbsp;changeSellDetal(info)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if tinfo != None:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print i[0].decode('UTF-8'),j.decode('UTF-8'),k.decode('UTF-8')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; for ttinfo in tinfo:
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(i[0])
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(';')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(j)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(';')
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(k)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(';')#str.encode("UTF-8")
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; jsoninfo = &nbsp;json.dumps(ttinfo, encoding="UTF-8", ensure_ascii=False)
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write(jsoninfo.encode('UTF-8'))
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; f.write('\n')
+&nbsp; &nbsp; f.close()
+&nbsp; &nbsp; print "ok"
+def GetTicketInit():
+&nbsp; &nbsp; fromcity= '南昌'#必须使用UTF8
+&nbsp; &nbsp; tocity= '北京西'
+&nbsp; &nbsp; date = '2013-10-22'
+&nbsp; &nbsp; stationName = 'K106'
+&nbsp; &nbsp; usename = 'system_12306_cn'#写自己的用户名
+&nbsp; &nbsp; password = 'system_12306'#自己的密码
+&nbsp; &nbsp; peoples = {}
+&nbsp; &nbsp; people1 = {'name':'郝某',#姓名
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'idcard':'141124198401284046',#身份号
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'cardtype':'1',#身份类型 1 二代身份证 2 一代身份证 &nbsp;c 港澳通行证 G 台湾通行证 B 护照
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'seat':'1',#1 硬座 2 软座 3 硬卧 4 软卧 5 高级软卧 O 二等座 M 一等座 P 特等座 9 商务座
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'ticket':'1',#1成人票，2 儿童票 3 学生票 4 残军票
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'mobileno':'13800138000'}#手机号，可有可无
+&nbsp; &nbsp; peoples['people1'] = people1
+&nbsp; &nbsp; print GetTicket(usename,password,fromcity,tocity,date,stationName,peoples)
+def GetSellPrice():
+&nbsp; &nbsp; pass
+&nbsp; &nbsp; #print allinfo
+def main():
+&nbsp; &nbsp; if len(sys.argv) < 2:
+&nbsp; &nbsp; &nbsp; &nbsp; print 'mainpython.py [-T / -S /-Q /-G]'
+&nbsp; &nbsp; &nbsp; &nbsp; return&nbsp;
+&nbsp; &nbsp; if sys.argv[1] == "-T":
+&nbsp; &nbsp; &nbsp; &nbsp; RistTrain()
+&nbsp; &nbsp; elif sys.argv[1] == "-S":
+&nbsp; &nbsp; &nbsp; &nbsp; GetSellPlace_ALL()
+&nbsp; &nbsp; elif sys.argv[1] == "-Q":
+&nbsp; &nbsp; &nbsp; &nbsp; GetQuery(GetAllTrainNameList())
+&nbsp; &nbsp; elif sys.argv[1] == "-G":
+&nbsp; &nbsp; &nbsp; &nbsp; GetTicketInit()
+Cookie=""#连接相关
+loginRand = ""#一个简单的随机难证
+train = ""#所有列转站台ID列表
+TrainNumList =""#车次的ID列
+
+
+
+
+if __name__ == '__main__':
+&nbsp; &nbsp; main()
